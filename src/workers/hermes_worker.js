@@ -11,12 +11,14 @@ import PeriodicWorker from './periodic_worker';
 import HermesUploadStrategy from './hermes_strategies/upload_strategy';
 
 export default class HermesWorker extends PeriodicWorker {
-  constructor(dataModelEngine, uploadRepository, strategy, logger) {
+  constructor(dataModelEngine, uploadRepository, strategy, retryPeriod, logger) {
     super(strategy.workerInterval, logger);
     this.dataModelEngine = dataModelEngine;
     this.bundleSequenceNumber = 0;
     this.strategy = strategy;
     this.uploadRepository = uploadRepository;
+    this.retryPeriod = retryPeriod;
+    this.retriesCounter = 0;
     if (!(this.strategy instanceof HermesUploadStrategy)) {
       throw new Error('A valid strategy must be provided');
     }
@@ -32,6 +34,14 @@ export default class HermesWorker extends PeriodicWorker {
       await this.dataModelEngine.cancelBundling(this.bundleSequenceNumber);
       this.logger.info('Bundling process canceled');
     }
+
+    if (this.retriesCounter === 0) {
+      const uploaded = await this.dataModelEngine.uploadNotRegisteredBundles();
+      if (uploaded.length > 0) {
+        this.logger.info(`Uploaded ${uploaded.length} not registered bundles`);
+      }
+    }
+    this.retriesCounter = (this.retriesCounter + 1) % this.retryPeriod;
   }
 
   async performBundling(bundle) {
